@@ -57,24 +57,51 @@ section Tactics
     let stx ← `(term | { maxSimpHeartbeats := $shStx, maxRuleHeartbeats := $shStx, maxUnfoldHeartbeats := $shStx })
     `(tactic_clause| (config := $stx:term))
 
-  private def mkAesopStx (tacticClauses : Array (TSyntax `Aesop.tactic_clause)) : TSyntax `tactic :=
+  private def mkAesopStxNew (tacticClauses : Array (TSyntax `Aesop.tactic_clause)) : TSyntax `tactic :=
     Unhygienic.run `(tactic| aesop $tacticClauses:Aesop.tactic_clause*)
+
+  private def mkAesopStxOld (tacticClauses : Array (TSyntax `Aesop.tactic_clause)) : TSyntax `tactic :=
+  Unhygienic.run `(tactic|
+
+      set_option aesop.dev.statefulForward false in
+      aesop $tacticClauses:Aesop.tactic_clause*)
 
   /--
     Tactic sequence: `intros; aesop`
     Only guaranteed to work for `aesop @ Lean v4.14.0`
   -/
-  def useAesop (subHeartbeats : Nat) : TacticM Unit := do
+  def useAesop (subHeartbeats : Nat) (useNew : Bool) : TacticM Unit := do
     let configStx ← mkAesopConfigStx subHeartbeats
-    let aesopStx := mkAesopStx #[configStx]
+    let mut aesopStx : TSyntax `tactic := default
+    if useNew then
+      aesopStx := mkAesopStxNew #[configStx]
+    else
+      aesopStx := mkAesopStxOld #[configStx]
     let stx ← `(tactic|intros; $aesopStx)
     evalTactic stx
+
+def mkAddIdentStx_apply (ident : Ident) : TSyntax `Aesop.tactic_clause :=
+  let feat := Unhygienic.run `(feature| $ident:ident)
+  let rules : TSyntax `Aesop.rule_expr := Unhygienic.run `(rule_expr| $feat:Aesop.feature)
+  Unhygienic.run  `(tactic_clause| (add unsafe $rules:Aesop.rule_expr))
+
+def mkAddIdentStx_forward_safe (ident : Ident) : TSyntax `Aesop.tactic_clause :=
+  let feat := Unhygienic.run `(feature| $ident:ident)
+  let rules : TSyntax `Aesop.rule_expr := Unhygienic.run `(rule_expr| $feat:Aesop.feature)
+  Unhygienic.run  `(tactic_clause| (add safe forward $rules:Aesop.rule_expr))
+
+def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause :=
+  let feat := Unhygienic.run `(feature| $ident:ident)
+  let rules : TSyntax `Aesop.rule_expr := Unhygienic.run `(rule_expr| $feat:Aesop.feature)
+  Unhygienic.run  `(tactic_clause| (add 99% forward $rules:Aesop.rule_expr))
 
   /--
     Tactic sequence: `intros; aesop (add unsafe premise₁) ⋯ (add unsafe premiseₙ)`
     Only guaranteed to work for `aesop @ Lean v4.14.0`
   -/
-  def useAesopWithPremises (subHeartbeats : Nat) (ci : ConstantInfo) : TacticM Unit := do
+  def useAesopWithPremises (subHeartbeats : Nat) (useNew : Bool)
+      (mkAddIdentStx : Ident → TSyntax `Aesop.tactic_clause) (ci : ConstantInfo) :
+      TacticM Unit := do
     let .some proof := ci.value?
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
     let configClause ← mkAesopConfigStx subHeartbeats
@@ -82,15 +109,15 @@ section Tactics
       return !(← Name.onlyLogicInType name))
     let usedThmIdents := usedThmNames.map Lean.mkIdent
     let addClauses := usedThmIdents.map mkAddIdentStx
-    let aesopStx := mkAesopStx (#[configClause] ++ addClauses)
+    let mut aesopStx : TSyntax `tactic := default
+    if useNew then
+      aesopStx := mkAesopStxNew (#[configClause] ++ addClauses)
+    else
+      aesopStx := mkAesopStxOld (#[configClause] ++ addClauses)
     let stx ← `(tactic| intros; $aesopStx)
     evalTactic stx
   where
     synth : SourceInfo := SourceInfo.synthetic default default false
-    mkAddIdentStx (ident : Ident) : (TSyntax `Aesop.tactic_clause) :=
-      let feat := Unhygienic.run `(feature| $ident:ident)
-      let rules : TSyntax `Aesop.rule_expr := Unhygienic.run `(rule_expr| $feat:Aesop.feature)
-      Unhygienic.run  `(tactic_clause| (add 99% forward $rules:Aesop.rule_expr))
 
   def useDuper (ci : ConstantInfo) : TacticM Unit := do
     let .some proof := ci.value?
@@ -148,6 +175,10 @@ section Tactics
     | useSimpAllWithPremises
     | useAesop (subHeartbeats : Nat)
     | useAesopWithPremises (subHeartbeats : Nat)
+    | useAesopPSafeNew (subHeartbeats : Nat)
+    | useAesopPSafeOld (subHeartbeats : Nat)
+    | useAesopPUnsafeNew (subHeartbeats : Nat)
+    | useAesopPUnsafeOld (subHeartbeats : Nat)
     | useDuper
     | useAuto (ignoreNonQuasiHigherOrder : Bool) (config : SolverConfig) (timeout : Nat)
   deriving BEq, Hashable, Repr
@@ -161,6 +192,10 @@ section Tactics
     | .useSimpAllWithPremises  => "useSimpAllWithPremises"
     | .useAesop sh             => s!"useAesop {sh}"
     | .useAesopWithPremises sh => s!"useAesopWithPremises {sh}"
+    | .useAesopPSafeNew sh => s!"useAesopPSafeNew {sh}"
+    | .useAesopPSafeOld sh => s!"useAesopPSafeOld {sh}"
+    | .useAesopPUnsafeNew sh => s!"useAesopPUnsafeNew {sh}"
+    | .useAesopPUnsafeOld sh => s!"useAesopPUnsafeOld {sh}"
     | .useDuper                => s!"useDuper"
     | .useAuto ig config timeout => s!"useAuto {ig} {config} {timeout}"
 
@@ -170,8 +205,12 @@ section Tactics
     | .useSimp                 => fun _ => EvalAuto.useSimp
     | .useSimpAll              => fun _ => EvalAuto.useSimpAll
     | .useSimpAllWithPremises  => EvalAuto.useSimpAllWithPremises
-    | .useAesop sh             => fun _ => EvalAuto.useAesop sh
-    | .useAesopWithPremises sh => EvalAuto.useAesopWithPremises sh
+    | .useAesop sh             => fun _ => EvalAuto.useAesop sh true
+    | .useAesopWithPremises sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_apply
+    | .useAesopPSafeNew sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_forward_safe
+    | .useAesopPSafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_safe
+    | .useAesopPUnsafeNew sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_forward_unsafe
+    | .useAesopPUnsafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_unsafe
     | .useDuper                => EvalAuto.useDuper
     | .useAuto ig config timeout => EvalAuto.useAuto ig config timeout
 
