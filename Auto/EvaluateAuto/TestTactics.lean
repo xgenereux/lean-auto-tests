@@ -119,6 +119,98 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
   where
     synth : SourceInfo := SourceInfo.synthetic default default false
 
+
+  -- private def mkSaturateConfigStx (subHeartbeats : Nat) : CoreM (TSyntax `Aesop.tactic_clause) := do
+  --   let synth : SourceInfo := SourceInfo.synthetic default default false
+  --   let shStx := Syntax.node synth `num #[Syntax.atom synth (toString subHeartbeats)]
+  --   let shStx := TSyntax.mk shStx
+  --   let stx ← `(term | { maxSimpHeartbeats := $shStx, maxRuleHeartbeats := $shStx, maxUnfoldHeartbeats := $shStx })
+  --   `(tactic_clause| (config := $stx:term))
+
+
+    open Aesop Frontend Parser in
+  private def mkSaturateStxNew (subHeartbeats : Nat) (rules : TSyntax ``additionalRules) :
+      TSyntax `tactic :=
+      let sh : TSyntax [`str, `num] := ⟨Syntax.mkNumLit (toString subHeartbeats)⟩
+      let rules? := some rules
+    Unhygienic.run `(tactic |
+        set_option maxHeartbeats $sh in
+        saturate 1 $[$rules?]?)
+
+  open Aesop Frontend Parser in
+  private def mkSaturateStxOld (subHeartbeats : Nat) (rules : TSyntax ``additionalRules) :
+      TSyntax `tactic :=
+      let sh : TSyntax [`str, `num] := ⟨Syntax.mkNumLit (toString subHeartbeats)⟩
+      let rules? := some rules
+    Unhygienic.run `(tactic|
+        set_option maxHeartbeats $sh in
+        set_option aesop.dev.statefulForward false in
+        saturate 1 $[$rules?]?)
+
+  open Aesop Frontend Parser in
+  def mkAddRulesStx (idents : Array Ident) : (TSyntax ``additionalRules) :=
+    let rules := idents.map (fun ident =>
+    Unhygienic.run `(additionalRule| $ident:ident)) -- should this be a term?
+  Unhygienic.run `(additionalRules| [$rules:additionalRule,*])
+
+    -- let feat := Unhygienic.run `(feature| $ident:ident)
+    -- let rules : TSyntax `Aesop.rule_expr := Unhygienic.run `(rule_expr| $feat:Aesop.feature)
+    -- Unhygienic.run  `(tactic_clause| (add 99% forward $rules:Aesop.rule_expr))
+
+  def useSaturate (subHeartbeats : Nat) (useNew : Bool) (aesopDis : Bool) (ci : ConstantInfo) :
+      TacticM Unit := do
+    let .some proof := ci.value?
+      | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
+    let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
+      return !(← Name.onlyLogicInType name))
+    let usedThmIdents := usedThmNames.map Lean.mkIdent
+    let addClauses := mkAddRulesStx usedThmIdents
+    let mut saturateStx : TSyntax `tactic := default
+    if useNew then
+      saturateStx := mkSaturateStxNew subHeartbeats addClauses
+    else
+      saturateStx := mkSaturateStxOld subHeartbeats addClauses
+    let mut stx : TSyntax `tactic.seq := default
+    if aesopDis then
+      stx ← `(tactic| intros; $saturateStx; aesop)
+    else
+      stx ← `(tactic| intros; $saturateStx; assumption)
+    evalTactic stx
+  where
+    synth : SourceInfo := SourceInfo.synthetic default default false
+
+--   def testUseSaturate (subHeartbeats : Nat) (useNew : Bool) (aesopDis : Bool) (ident : Ident) :
+--       TacticM Unit := do
+--     let usedThmIdents := #[ident]
+--     let addClauses := mkAddRulesStx usedThmIdents
+--     let mut saturateStx : TSyntax `tactic := default
+--     if useNew then
+--       saturateStx := mkSaturateStxNew subHeartbeats addClauses
+--     else
+--       saturateStx := mkSaturateStxOld subHeartbeats addClauses
+--     let mut stx : TSyntax `tactic.seq := default
+--     if aesopDis then
+--       stx ← `(tactic| intros; $saturateStx; aesop)
+--     else
+--       stx ← `(tactic| intros; $saturateStx; assumption)
+--     evalTactic stx
+--   where
+--     synth : SourceInfo := SourceInfo.synthetic default default false
+
+-- elab "myTest " hb:(num) ppSpace new?:(Aesop.bool_lit) ppSpace aesop?:(Aesop.bool_lit)
+--     ident:(ident) : tactic => do
+--   let hb := hb.getNat
+--   let toBool (boolSyntax : TSyntax `Aesop.bool_lit) : Bool :=
+--     match boolSyntax with
+--     | `(bool_lit| true) => true
+--     | `(bool_lit| false) => false
+--     | _ => true
+--   testUseSaturate hb (toBool new?) (toBool aesop?) ident
+
+-- example : True := by
+--   myTest 200000 false false True.intro
+--   assumption
+
   def useDuper (ci : ConstantInfo) : TacticM Unit := do
     let .some proof := ci.value?
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
@@ -179,6 +271,10 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | useAesopPSafeOld (subHeartbeats : Nat)
     | useAesopPUnsafeNew (subHeartbeats : Nat)
     | useAesopPUnsafeOld (subHeartbeats : Nat)
+    | useSaturateNewDAesop (subHeartbeats : Nat)
+    | useSaturateOldDAesop (subHeartbeats : Nat)
+    | useSaturateNewDAss (subHeartbeats : Nat)
+    | useSaturateOldDAss (subHeartbeats : Nat)
     | useDuper
     | useAuto (ignoreNonQuasiHigherOrder : Bool) (config : SolverConfig) (timeout : Nat)
   deriving BEq, Hashable, Repr
@@ -196,6 +292,10 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useAesopPSafeOld sh => s!"useAesopPSafeOld {sh}"
     | .useAesopPUnsafeNew sh => s!"useAesopPUnsafeNew {sh}"
     | .useAesopPUnsafeOld sh => s!"useAesopPUnsafeOld {sh}"
+    | .useSaturateNewDAesop sh => s!"useSaturateNewDAesop {sh}"
+    | .useSaturateOldDAesop sh => s!"useSaturateOldDAesop {sh}"
+    | .useSaturateNewDAss sh => s!"useSaturateNewDAss {sh}"
+    | .useSaturateOldDAss sh => s!"useSaturateOldDAs {sh}"
     | .useDuper                => s!"useDuper"
     | .useAuto ig config timeout => s!"useAuto {ig} {config} {timeout}"
 
@@ -211,6 +311,10 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useAesopPSafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_safe
     | .useAesopPUnsafeNew sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_forward_unsafe
     | .useAesopPUnsafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_unsafe
+    | .useSaturateNewDAesop sh => EvalAuto.useSaturate sh true true
+    | .useSaturateOldDAesop sh => EvalAuto.useSaturate sh false true
+    | .useSaturateNewDAss sh => EvalAuto.useSaturate sh true false
+    | .useSaturateOldDAss sh => EvalAuto.useSaturate sh false false
     | .useDuper                => EvalAuto.useDuper
     | .useAuto ig config timeout => EvalAuto.useAuto ig config timeout
 
