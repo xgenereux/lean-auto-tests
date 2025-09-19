@@ -119,15 +119,6 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
   where
     synth : SourceInfo := SourceInfo.synthetic default default false
 
-
-  -- private def mkSaturateConfigStx (subHeartbeats : Nat) : CoreM (TSyntax `Aesop.tactic_clause) := do
-  --   let synth : SourceInfo := SourceInfo.synthetic default default false
-  --   let shStx := Syntax.node synth `num #[Syntax.atom synth (toString subHeartbeats)]
-  --   let shStx := TSyntax.mk shStx
-  --   let stx ← `(term | { maxSimpHeartbeats := $shStx, maxRuleHeartbeats := $shStx, maxUnfoldHeartbeats := $shStx })
-  --   `(tactic_clause| (config := $stx:term))
-
-
     open Aesop Frontend Parser in
   private def mkSaturateStxNew (subHeartbeats : Nat) (rules : TSyntax ``additionalRules) :
       TSyntax `tactic :=
@@ -135,7 +126,7 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
       let rules? := some rules
     Unhygienic.run `(tactic |
         set_option maxHeartbeats $sh in
-        saturate 1 $[$rules?]?)
+        saturate 10 $[$rules?]?) -- What is the correct number?
 
   open Aesop Frontend Parser in
   private def mkSaturateStxOld (subHeartbeats : Nat) (rules : TSyntax ``additionalRules) :
@@ -145,17 +136,13 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     Unhygienic.run `(tactic|
         set_option maxHeartbeats $sh in
         set_option aesop.dev.statefulForward false in
-        saturate 1 $[$rules?]?)
+        saturate 10 $[$rules?]?) -- What is the correct number?
 
   open Aesop Frontend Parser in
   def mkAddRulesStx (idents : Array Ident) : (TSyntax ``additionalRules) :=
     let rules := idents.map (fun ident =>
     Unhygienic.run `(additionalRule| $ident:ident)) -- should this be a term?
   Unhygienic.run `(additionalRules| [$rules:additionalRule,*])
-
-    -- let feat := Unhygienic.run `(feature| $ident:ident)
-    -- let rules : TSyntax `Aesop.rule_expr := Unhygienic.run `(rule_expr| $feat:Aesop.feature)
-    -- Unhygienic.run  `(tactic_clause| (add 99% forward $rules:Aesop.rule_expr))
 
   def useSaturate (subHeartbeats : Nat) (useNew : Bool) (aesopDis : Bool) (ci : ConstantInfo) :
       TacticM Unit := do
@@ -207,9 +194,11 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
 --     | _ => true
 --   testUseSaturate hb (toBool new?) (toBool aesop?) ident
 
--- example : True := by
---   myTest 200000 false false True.intro
---   assumption
+-- example (a b c d e : Nat) (hab : a ≤ b) (hab : b ≤ c) (hab : c ≤ d) (hab : d ≤ e) :
+--   a ≤ e := by
+--   set_option trace.profiler.threshold 0 in
+--   set_option trace.profiler true in
+--   myTest 200000 true false Nat.le_trans
 
   def useDuper (ci : ConstantInfo) : TacticM Unit := do
     let .some proof := ci.value?
