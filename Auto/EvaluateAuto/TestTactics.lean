@@ -120,21 +120,17 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     synth : SourceInfo := SourceInfo.synthetic default default false
 
     open Aesop Frontend Parser in
-  private def mkSaturateStxNew (subHeartbeats : Nat) (rules : TSyntax ``additionalRules) :
+  private def mkSaturateStxNew (rules : TSyntax ``additionalRules) :
       TSyntax `tactic :=
-      let sh : TSyntax [`str, `num] := ⟨Syntax.mkNumLit (toString subHeartbeats)⟩
       let rules? := some rules
     Unhygienic.run `(tactic |
-        set_option maxHeartbeats $sh in
         saturate 10 $[$rules?]?) -- What is the correct number?
 
   open Aesop Frontend Parser in
-  private def mkSaturateStxOld (subHeartbeats : Nat) (rules : TSyntax ``additionalRules) :
+  private def mkSaturateStxOld (rules : TSyntax ``additionalRules) :
       TSyntax `tactic :=
-      let sh : TSyntax [`str, `num] := ⟨Syntax.mkNumLit (toString subHeartbeats)⟩
       let rules? := some rules
     Unhygienic.run `(tactic|
-        set_option maxHeartbeats $sh in
         set_option aesop.dev.statefulForward false in
         saturate 10 $[$rules?]?) -- What is the correct number?
 
@@ -144,7 +140,7 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     Unhygienic.run `(additionalRule| $ident:ident)) -- should this be a term?
   Unhygienic.run `(additionalRules| [$rules:additionalRule,*])
 
-  def useSaturate (subHeartbeats : Nat) (useNew : Bool) (aesopDis : Bool) (ci : ConstantInfo) :
+  def useSaturate (useNew : Bool) (aesopDis : Bool) (ci : ConstantInfo) :
       TacticM Unit := do
     let .some proof := ci.value?
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
@@ -154,9 +150,9 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     let addClauses := mkAddRulesStx usedThmIdents
     let mut saturateStx : TSyntax `tactic := default
     if useNew then
-      saturateStx := mkSaturateStxNew subHeartbeats addClauses
+      saturateStx := mkSaturateStxNew addClauses
     else
-      saturateStx := mkSaturateStxOld subHeartbeats addClauses
+      saturateStx := mkSaturateStxOld addClauses
     let mut stx : TSyntax `tactic.seq := default
     if aesopDis then
       stx ← `(tactic| intros; $saturateStx; aesop)
@@ -260,10 +256,10 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | useAesopPSafeOld (subHeartbeats : Nat)
     | useAesopPUnsafeNew (subHeartbeats : Nat)
     | useAesopPUnsafeOld (subHeartbeats : Nat)
-    | useSaturateNewDAesop (subHeartbeats : Nat)
-    | useSaturateOldDAesop (subHeartbeats : Nat)
-    | useSaturateNewDAss (subHeartbeats : Nat)
-    | useSaturateOldDAss (subHeartbeats : Nat)
+    | useSaturateNewDAesop
+    | useSaturateOldDAesop
+    | useSaturateNewDAss
+    | useSaturateOldDAss
     | useDuper
     | useAuto (ignoreNonQuasiHigherOrder : Bool) (config : SolverConfig) (timeout : Nat)
   deriving BEq, Hashable, Repr
@@ -281,10 +277,10 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useAesopPSafeOld sh => s!"useAesopPSafeOld {sh}"
     | .useAesopPUnsafeNew sh => s!"useAesopPUnsafeNew {sh}"
     | .useAesopPUnsafeOld sh => s!"useAesopPUnsafeOld {sh}"
-    | .useSaturateNewDAesop sh => s!"useSaturateNewDAesop {sh}"
-    | .useSaturateOldDAesop sh => s!"useSaturateOldDAesop {sh}"
-    | .useSaturateNewDAss sh => s!"useSaturateNewDAss {sh}"
-    | .useSaturateOldDAss sh => s!"useSaturateOldDAs {sh}"
+    | .useSaturateNewDAesop => s!"useSaturateNewDAesop"
+    | .useSaturateOldDAesop => s!"useSaturateOldDAesop"
+    | .useSaturateNewDAss => s!"useSaturateNewDAss"
+    | .useSaturateOldDAss => s!"useSaturateOldDAs"
     | .useDuper                => s!"useDuper"
     | .useAuto ig config timeout => s!"useAuto {ig} {config} {timeout}"
 
@@ -300,10 +296,10 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useAesopPSafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_safe
     | .useAesopPUnsafeNew sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_forward_unsafe
     | .useAesopPUnsafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_unsafe
-    | .useSaturateNewDAesop sh => EvalAuto.useSaturate sh true true
-    | .useSaturateOldDAesop sh => EvalAuto.useSaturate sh false true
-    | .useSaturateNewDAss sh => EvalAuto.useSaturate sh true false
-    | .useSaturateOldDAss sh => EvalAuto.useSaturate sh false false
+    | .useSaturateNewDAesop => EvalAuto.useSaturate true true
+    | .useSaturateOldDAesop => EvalAuto.useSaturate false true
+    | .useSaturateNewDAss => EvalAuto.useSaturate true false
+    | .useSaturateOldDAss => EvalAuto.useSaturate false false
     | .useDuper                => EvalAuto.useDuper
     | .useAuto ig config timeout => EvalAuto.useAuto ig config timeout
 
