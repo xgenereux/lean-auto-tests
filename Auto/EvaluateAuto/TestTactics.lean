@@ -475,7 +475,7 @@ structure EvalTacticOnMathlibConfig where
   /-- Memory limit for each evaluation process, in kb -/
   memoryLimitKb : Option Nat    := .none
   /-- Total time limit for each evaluation process, in seconds -/
-  timeLimitS    : Option Nat    := .none
+  timeLimitS    : Option Nat    := some 10
   /-- Specify modules to run tactics on -/
   moduleFilter  : Name → Bool   := fun _ => true
   /--
