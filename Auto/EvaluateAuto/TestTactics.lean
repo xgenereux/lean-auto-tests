@@ -544,9 +544,11 @@ def evalTacticsAtMathlibHumanTheorems (config : EvalTacticOnMathlibConfig) : Cor
     if let .some mlimit := config.memoryLimitKb then
       evalProc.stdin.putStrLn s!"ulimit -v {mlimit}"
     if let .some tlimit := config.timeLimitS then
-      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | timeout {tlimit} lake env lean -j1 --stdin")
+      -- We need at least 2 threads here to enable the thread-based timeout mechanism.
+      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | timeout {tlimit} lake env lean -j2 --stdin")
     else
-      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | lake env lean -j1 --stdin")
+      -- Ditto
+      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | lake env lean -j2 --stdin")
     let (_, evalProc) ← evalProc.takeStdin
     running := running.push (mm, evalProc)
     while running.size >= config.nprocs do
