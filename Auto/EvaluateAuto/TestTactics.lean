@@ -359,8 +359,9 @@ def withTimeout (timeoutMs : UInt32) (cancelTk : IO.CancelToken) (x : IO α) : I
   let doCancel : IO Unit := do
     IO.sleep timeoutMs
     cancelTk.set
-  discard $ doCancel.asTask
+  let cancelTask ← doCancel.asTask
   let result? ← IO.wait task
+  IO.cancel cancelTask
   match result? with
   | .ok result => return some result
   | .error err =>
