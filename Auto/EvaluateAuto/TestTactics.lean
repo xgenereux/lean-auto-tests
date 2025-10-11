@@ -339,7 +339,7 @@ def runTacticsAtConstantDeclaration
 
 structure EvalTacticConfig where
   /-- Timeout in milliseconds for each tactic -/
-  timeoutMs?    : Option Std.Time.Millisecond.Offset := some 30_000 -- 30s
+  timeout?      : Option Std.Time.Millisecond.Offset := some 30_000 -- 30s
   /-- Heartbeat-based timeout for each tactic -/
   maxHeartbeats : Nat           := 65536
   /-- Tactics to run at each constant declaration -/
@@ -373,7 +373,7 @@ def withMaybeTimeout (timeout : Std.Time.Millisecond.Offset) (cancelTk? : Option
 
 instance : ToString EvalTacticConfig where
   toString : EvalTacticConfig → String
-  | ⟨timeoutMs?, maxHeartbeats, tactics, logFile, resultFile, nonterminates⟩ =>
+  | ⟨timeout?, maxHeartbeats, tactics, logFile, resultFile, nonterminates⟩ =>
     let logFileStr :=
       match logFile with
       | .some logFile => s!", logFile := {logFile}"
@@ -384,7 +384,7 @@ instance : ToString EvalTacticConfig where
       | .none => ""
     let nontermStr := String.intercalate ",\n" (nonterminates.map (fun (rt, n) => s!"    ({rt}, {n})")).toList
     let nontermStr := if nonterminates.size != 0 then nontermStr ++ "\n" else nontermStr
-    s!"\{\n  timeoutMs? := {timeoutMs?}, maxHeartbeats := {maxHeartbeats}, tactics := {tactics}{logFileStr}{resultFileStr}" ++
+    s!"\{\n  timeout? := {timeout?}, maxHeartbeats := {maxHeartbeats}, tactics := {tactics}{logFileStr}{resultFileStr}" ++
     s!"\n  nonterminates := #[\n{nontermStr}  ]\n}"
 
 /--
@@ -448,15 +448,15 @@ where
               metaAction.run')
       trace[auto.eval.printResult] m!"{result}"
       return result
-    let cancelTk? ← config.timeoutMs?.mapM fun _ => IO.CancelToken.new
-    let timeoutMs := config.timeoutMs?.getD 0
+    let cancelTk? ← config.timeout?.mapM fun _ => IO.CancelToken.new
+    let timeout := config.timeout?.getD 0
     let problemStartTime ← IO.monoMsNow
     let problemStartHb ← IO.getNumHeartbeats
-    let result? ← withMaybeTimeout timeoutMs cancelTk? do
+    let result? ← withMaybeTimeout timeout cancelTk? do
       (·.1) <$> coreAction.toIO context state
     let problemTime := (← IO.monoMsNow) - problemStartTime
     let problemHb := (← IO.getNumHeartbeats) - problemStartHb
-    let result := result?.getD <| .exception <| .error .missing m!"Timed out after {timeoutMs}ms"
+    let result := result?.getD <| .exception <| .error .missing m!"Timed out after {timeout}ms"
     if let .some fhandle := logFileHandle? then
       fhandle.putStrLn (toString (← MessageData.format m!"{result}\nElapsed time : {problemTime} ms, {problemHb} hb"))
     return (result, problemTime, problemHb)
@@ -484,7 +484,7 @@ where
 
 structure EvalTacticOnMathlibConfig where
   /-- Timeout for each tactic in milliseconds -/
-  timeoutMs?    : Option UInt32 := some <| 30 * 1000 -- 30s
+  timeout?      : Option Std.Time.Millisecond.Offset := some <| 30_1000 -- 30s
   /-- Timeout for each tactic in heartbeats -/
   maxHeartbeats : Nat           := 65536
   /-- Tactics to run at each constant declaration -/
@@ -607,7 +607,7 @@ where
         "",
         "def action : CoreM Unit := do",
         s!"  let _ ← evalTacticsAtModule ({repr mm}) (fun ci => humanThms.contains ci.name)",
-        s!"    {lb} timeoutMs? := {config.timeoutMs?}, maxHeartbeats := {config.maxHeartbeats}, tactics := #[{tacsStr}],",
+        s!"    {lb} timeout? := {config.timeout?}, maxHeartbeats := {config.maxHeartbeats}, tactics := #[{tacsStr}],",
         s!"      logFile := {repr (logPath ++ ".log")}, resultFile := {repr (logPath ++ ".result")},",
         s!"      nonterminates := nonterms {rb}",
         "",
