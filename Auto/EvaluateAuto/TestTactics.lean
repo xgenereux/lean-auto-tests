@@ -14,6 +14,7 @@ open Lean
 namespace EvalAuto
 
 open Elab Tactic
+open Std.Internal.IO.Async (sleep)
 
 section Tactics
 
@@ -338,7 +339,7 @@ def runTacticsAtConstantDeclaration
 
 structure EvalTacticConfig where
   /-- Timeout in milliseconds for each tactic -/
-  timeoutMs?    : Option UInt32 := some <| (30 * 1000) -- 30s
+  timeoutMs?    : Option Std.Time.Millisecond.Offset := some 30_000 -- 30s
   /-- Heartbeat-based timeout for each tactic -/
   maxHeartbeats : Nat           := 65536
   /-- Tactics to run at each constant declaration -/
@@ -354,25 +355,19 @@ structure EvalTacticConfig where
   -/
   nonterminates : Array (RegisteredTactic × Name)
 
-def withTimeout (timeoutMs : UInt32) (cancelTk : IO.CancelToken) (x : IO α) : IO (Option α) := do
-  let task ← x.asTask
-  let doCancel : IO Unit := do
-    IO.sleep timeoutMs
-    cancelTk.set
-  let cancelTask ← doCancel.asTask
-  let result? ← IO.wait task
+def withTimeout (timeout : Std.Time.Millisecond.Offset) (cancelTk : IO.CancelToken) (x : IO α) : IO (Option α) := do
+  let task ← (some <$> x).asTask
+  let cancelTask ← (← sleep timeout).mapIO fun _ => do
+    if ! (← IO.checkCanceled) then
+      cancelTk.set
+    return none
+  let result?? ← IO.waitAny [task, cancelTask]
   IO.cancel cancelTask
-  match result? with
-  | .ok result => return some result
-  | .error err =>
-    if ← cancelTk.isSet then
-      return none
-    else
-      throw err
+  EIO.ofExcept result??
 
-def withMaybeTimeout (timeoutMs : UInt32) (cancelTk? : Option IO.CancelToken) (x : IO α) : IO (Option α) := do
+def withMaybeTimeout (timeout : Std.Time.Millisecond.Offset) (cancelTk? : Option IO.CancelToken) (x : IO α) : IO (Option α) := do
   if let some cancelTk := cancelTk? then
-    withTimeout timeoutMs cancelTk x
+    withTimeout timeout cancelTk x
   else
     x
 
