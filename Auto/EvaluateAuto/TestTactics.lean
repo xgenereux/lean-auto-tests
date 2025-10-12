@@ -493,6 +493,8 @@ structure EvalTacticOnMathlibConfig where
   resultFolder  : String
   /-- Number of processes to use -/
   nprocs        : Nat
+  /-- Number of threads spawned by each Lean process. -/
+  nthreads      : Nat           := 20
   /-- Memory limit for each evaluation process, in kb -/
   memoryLimitKb : Option Nat    := .none
   /-- Total time limit for each evaluation process, in seconds -/
@@ -541,10 +543,10 @@ def evalTacticsAtMathlibHumanTheorems (config : EvalTacticOnMathlibConfig) : Cor
       evalProc.stdin.putStrLn s!"ulimit -v {mlimit}"
     if let .some tlimit := config.timeLimitS then
       -- We need at least 2 threads here to enable the thread-based timeout mechanism.
-      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | timeout {tlimit} lake env lean -j3 --stdin")
+      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | timeout {tlimit} lake env lean -j{config.nthreads} --stdin")
     else
       -- Ditto
-      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | lake env lean -j3 --stdin")
+      evalProc.stdin.putStrLn ("echo " ++ bashRepr ef ++ s!" | lake env lean -j{config.nthreads} --stdin")
     let (_, evalProc) ← evalProc.takeStdin
     running := running.push (mm, evalProc)
     while running.size >= config.nprocs do
