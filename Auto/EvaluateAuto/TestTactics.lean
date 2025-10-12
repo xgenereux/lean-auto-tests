@@ -1,14 +1,12 @@
 import Auto.EvaluateAuto.OS
 import Auto.EvaluateAuto.CommandAnalysis
-import Auto.EvaluateAuto.AutoConfig
 import Std.Internal.Async.Timer
 import Aesop.Frontend.Tactic
 import Aesop.Frontend.Saturate
-open Lean
 
 namespace EvalAuto
 
-open Elab Tactic
+open Lean Elab Tactic
 open Std.Internal.IO.Async (sleep)
 
 section Tactics
@@ -148,88 +146,6 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
   where
     synth : SourceInfo := SourceInfo.synthetic default default false
 
---   def testUseSaturate (subHeartbeats : Nat) (useNew : Bool) (aesopDis : Bool) (ident : Ident) :
---       TacticM Unit := do
---     let usedThmIdents := #[ident]
---     let addClauses := mkAddRulesStx usedThmIdents
---     let mut saturateStx : TSyntax `tactic := default
---     if useNew then
---       saturateStx := mkSaturateStxNew subHeartbeats addClauses
---     else
---       saturateStx := mkSaturateStxOld subHeartbeats addClauses
---     let mut stx : TSyntax `tactic.seq := default
---     if aesopDis then
---       stx ← `(tactic| intros; $saturateStx; aesop)
---     else
---       stx ← `(tactic| intros; $saturateStx; assumption)
---     evalTactic stx
---   where
---     synth : SourceInfo := SourceInfo.synthetic default default false
-
--- elab "myTest " hb:(num) ppSpace new?:(Aesop.bool_lit) ppSpace aesop?:(Aesop.bool_lit)
---     ident:(ident) : tactic => do
---   let hb := hb.getNat
---   let toBool (boolSyntax : TSyntax `Aesop.bool_lit) : Bool :=
---     match boolSyntax with
---     | `(bool_lit| true) => true
---     | `(bool_lit| false) => false
---     | _ => true
---   testUseSaturate hb (toBool new?) (toBool aesop?) ident
-
--- example (a b c d e : Nat) (hab : a ≤ b) (hab : b ≤ c) (hab : c ≤ d) (hab : d ≤ e) :
---   a ≤ e := by
---   set_option trace.profiler.threshold 0 in
---   set_option trace.profiler true in
---   myTest 200000 true false Nat.le_trans
-
-  def useDuper (ci : ConstantInfo) : TacticM Unit := do
-    let .some proof := ci.value?
-      | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
-    let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
-      return !(← Name.onlyLogicInType name))
-    let usedThmIdents : Array Ident := usedThmNames.map (fun name => ⟨mkIdent name⟩)
-    let stx := mkDuperStx usedThmIdents
-    evalTactic stx
-  where
-    mkDuperStx (idents : Array Ident) : Syntax :=
-      let synth : SourceInfo := SourceInfo.synthetic default default false
-      let idArr : Array Syntax := ((idents.map (fun id => #[Syntax.atom synth ",", id])).flatMap id)[1:]
-      Syntax.node synth `Duper.duper
-        #[Syntax.atom synth "duper",
-          Syntax.node synth `null
-            #[Syntax.atom synth "[", Syntax.node synth `null idArr, Syntax.atom synth "]"],
-          Syntax.node synth `null
-            #[Syntax.atom synth "{",
-              Syntax.node synth `null
-                #[Syntax.node synth `Duper.«configOptionPortfolioInstance:=_»
-                    #[Syntax.atom synth "portfolioInstance",
-                      Syntax.atom synth ":=",
-                      Syntax.node synth `num #[Syntax.atom synth "0"]],
-                  Syntax.atom synth ",",
-                  Syntax.node synth `Duper.«configOptionPreprocessing:=_»
-                    #[Syntax.atom synth "preprocessing",
-                      Syntax.atom synth ":=",
-                      Syntax.node synth `Duper.preprocessing_optionNo_preprocessing
-                        #[Lean.Syntax.atom synth "no_preprocessing"]]],
-              Lean.Syntax.atom synth "}"]
-        ]
-
-  def useAuto
-    (ignoreNonQuasiHigherOrder : Bool)
-    (config : SolverConfig)
-    (timeout : Nat) -- Timeout for external provers
-    (ci : ConstantInfo) : TacticM Unit := do
-    let .some proof := ci.value?
-      | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
-    let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
-      return !(← Name.onlyLogicInType name))
-    let usedThmTerms : Array Term := usedThmNames.map (fun name => ⟨mkIdent name⟩)
-    let usedThmHints : Array (TSyntax `Auto.hintelem) ← usedThmTerms.mapM (fun t =>
-      `(Auto.hintelem| $t:term))
-    let stx ← `(tactic| auto [$[$usedThmHints],*])
-    withOptions (fun o => auto.mono.ignoreNonQuasiHigherOrder.set o ignoreNonQuasiHigherOrder) <|
-      withAutoSolverConfigOptions config timeout <| evalTactic stx
-
   inductive RegisteredTactic where
     | testUnknownConstant
     | useRfl
@@ -246,8 +162,6 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | useSaturateOldDAesop
     | useSaturateNewDAss
     | useSaturateOldDAss
-    | useDuper
-    | useAuto (ignoreNonQuasiHigherOrder : Bool) (config : SolverConfig) (timeout : Nat)
   deriving BEq, Hashable, Repr
 
   instance : ToString RegisteredTactic where
@@ -267,8 +181,6 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useSaturateOldDAesop    => "useSaturateOldDAesop"
     | .useSaturateNewDAss      => "useSaturateNewDAss"
     | .useSaturateOldDAss      => "useSaturateOldDAs"
-    | .useDuper                => "useDuper"
-    | .useAuto ig config timeout => s!"useAuto {ig} {config} {timeout}"
 
   def RegisteredTactic.toCiTactic : RegisteredTactic → ConstantInfo → TacticM Unit
     | .testUnknownConstant     => EvalAuto.testUnknownConstant
@@ -286,8 +198,6 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useSaturateOldDAesop    => EvalAuto.useSaturate false true
     | .useSaturateNewDAss      => EvalAuto.useSaturate true false
     | .useSaturateOldDAss      => EvalAuto.useSaturate false false
-    | .useDuper                => EvalAuto.useDuper
-    | .useAuto ig config timeout => EvalAuto.useAuto ig config timeout
 
 end Tactics
 
@@ -574,16 +484,10 @@ where
     if ensureAesop && !allImportedModules.contains `Aesop then
       throwError "{decl_name%} :: Cannot find module `Aesop`"
     let ensureAesopImports := if ensureAesop then #["import Aesop"] else #[]
-    let ensureAuto := auto.testTactics.ensureAuto.get (← getOptions)
-    let rnm := auto.testTactics.rebindNativeModuleName.get (← getOptions)
-    let rnm : Name := (rnm.splitOn ".").foldl (fun cur field => Name.str cur field) .anonymous
-    if ensureAuto && !allImportedModules.contains rnm then
-      throwError "{decl_name%} :: Cannot find rebindNativeModuleName module `{toString rnm}`"
-    let ensureAutoImports := if ensureAuto then #["import Duper.Tactic", s!"import {rnm}"] else #[]
     let lines := #[
         s!"import {mm}",
         "import Auto.EvaluateAuto.TestTactics"
-      ] ++ ensureAesopImports ++ ensureAutoImports ++ #[
+      ] ++ ensureAesopImports ++ #[
         "open Lean EvalAuto",
         "",
         "def humanThms : Std.HashSet Name := Std.HashSet.ofList ["
@@ -602,10 +506,6 @@ where
         "",
         -- Passing option `auto.testTactics.ensureAesop`
         s!"set_option auto.testTactics.ensureAesop {ensureAesop}",
-        -- Passing option `auto.testTactics.ensureAuto`
-        s!"set_option auto.testTactics.ensureAuto {ensureAuto}",
-        -- Passing option `auto.testTactics.rebindNativeModuleName`
-        s!"set_option auto.testTactics.rebindNativeModuleName \"{rnm}\"",
         "",
         "#eval action"
       ]
