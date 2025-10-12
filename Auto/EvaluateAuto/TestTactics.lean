@@ -1,13 +1,7 @@
-import Lean
 import Auto.EvaluateAuto.OS
-import Auto.EvaluateAuto.Result
-import Auto.EvaluateAuto.ConstAnalysis
-import Auto.EvaluateAuto.EnvAnalysis
-import Auto.EvaluateAuto.NameArr
 import Auto.EvaluateAuto.CommandAnalysis
-import Auto.Tactic
 import Auto.EvaluateAuto.AutoConfig
-import Std
+import Std.Internal.Async.Timer
 import Aesop.Frontend.Tactic
 import Aesop.Frontend.Saturate
 open Lean
@@ -422,7 +416,11 @@ where
     (nonterms : Std.HashSet (RegisteredTactic × Name)) : IO (Array (Result × Nat × Nat)) := do
   config.tactics.zipIdx.mapM fun (tactic, idx) => do
     let metaAction : MetaM Result :=
-      Term.TermElabM.run' <| Result.ofTacticOnExpr ci.type (tactic.toCiTactic ci)
+      Term.TermElabM.run' do
+      withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := config.maxHeartbeats * 1000 }) do
+      withOptions (async.set · false) do -- We run one process per core, so don't want contention from multiple threads.
+      withCurrHeartbeats do
+        Result.ofTacticOnExpr ci.type (tactic.toCiTactic ci)
     let coreAction : CoreM Result := do
       trace[auto.eval.printProblem] m!"Testing tactic {idx} || {ci.name} : {ci.type}"
       if let .some fhandle := logFileHandle? then
@@ -430,13 +428,11 @@ where
         fhandle.putStrLn s!"Timestamp : {← Std.Time.Timestamp.now}"
         fhandle.putStrLn s!"Testing tactic {idx} || {ci.name} : {← (Lean.Meta.ppExpr ci.type).run'}"
         fhandle.flush
-      let result ← (do
+      let result ← do
         if nonterms.contains (tactic, ci.name) then
           return Result.nonterminate
         else
-          withCurrHeartbeats <|
-            withReader (fun ctx => { ctx with maxHeartbeats := config.maxHeartbeats * 1000 }) <|
-              metaAction.run')
+          metaAction.run'
       trace[auto.eval.printResult] m!"{result}"
       return result
     let cancelTk? ← config.timeout?.mapM fun _ => IO.CancelToken.new
