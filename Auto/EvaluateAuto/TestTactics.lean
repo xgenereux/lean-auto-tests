@@ -8,7 +8,8 @@ import Auto.EvaluateAuto.CommandAnalysis
 import Auto.Tactic
 import Auto.EvaluateAuto.AutoConfig
 import Std
-import Aesop
+import Aesop.Frontend.Tactic
+import Aesop.Frontend.Saturate
 open Lean
 
 namespace EvalAuto
@@ -51,19 +52,11 @@ section Tactics
     let usedThmTerms : Array Term := usedThmNames.map (fun name => ⟨mkIdent name⟩)
     evalTactic (← `(tactic| intros; simp_all [$[$usedThmTerms:term],*]))
 
-  private def mkAesopConfigStx (subHeartbeats : Nat) : CoreM (TSyntax `Aesop.tactic_clause) := do
-    let synth : SourceInfo := SourceInfo.synthetic default default false
-    let shStx := Syntax.node synth `num #[Syntax.atom synth (toString subHeartbeats)]
-    let shStx := TSyntax.mk shStx
-    let stx ← `(term | { maxSimpHeartbeats := $shStx, maxRuleHeartbeats := $shStx, maxUnfoldHeartbeats := $shStx })
-    `(tactic_clause| (config := $stx:term))
-
   private def mkAesopStxNew (tacticClauses : Array (TSyntax `Aesop.tactic_clause)) : TSyntax `tactic :=
     Unhygienic.run `(tactic| aesop $tacticClauses:Aesop.tactic_clause*)
 
   private def mkAesopStxOld (tacticClauses : Array (TSyntax `Aesop.tactic_clause)) : TSyntax `tactic :=
   Unhygienic.run `(tactic|
-
       set_option aesop.dev.statefulForward false in
       aesop $tacticClauses:Aesop.tactic_clause*)
 
@@ -71,13 +64,12 @@ section Tactics
     Tactic sequence: `intros; aesop`
     Only guaranteed to work for `aesop @ Lean v4.14.0`
   -/
-  def useAesop (subHeartbeats : Nat) (useNew : Bool) : TacticM Unit := do
-    let configStx ← mkAesopConfigStx subHeartbeats
+  def useAesop (useNew : Bool) : TacticM Unit := do
     let mut aesopStx : TSyntax `tactic := default
     if useNew then
-      aesopStx := mkAesopStxNew #[configStx]
+      aesopStx := mkAesopStxNew #[]
     else
-      aesopStx := mkAesopStxOld #[configStx]
+      aesopStx := mkAesopStxOld #[]
     let stx ← `(tactic|intros; $aesopStx)
     evalTactic stx
 
@@ -100,21 +92,20 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     Tactic sequence: `intros; aesop (add unsafe premise₁) ⋯ (add unsafe premiseₙ)`
     Only guaranteed to work for `aesop @ Lean v4.14.0`
   -/
-  def useAesopWithPremises (subHeartbeats : Nat) (useNew : Bool)
+  def useAesopWithPremises (useNew : Bool)
       (mkAddIdentStx : Ident → TSyntax `Aesop.tactic_clause) (ci : ConstantInfo) :
       TacticM Unit := do
     let .some proof := ci.value?
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
-    let configClause ← mkAesopConfigStx subHeartbeats
     let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
       return !(← Name.onlyLogicInType name))
     let usedThmIdents := usedThmNames.map Lean.mkIdent
     let addClauses := usedThmIdents.map mkAddIdentStx
     let mut aesopStx : TSyntax `tactic := default
     if useNew then
-      aesopStx := mkAesopStxNew (#[configClause] ++ addClauses)
+      aesopStx := mkAesopStxNew addClauses
     else
-      aesopStx := mkAesopStxOld (#[configClause] ++ addClauses)
+      aesopStx := mkAesopStxOld addClauses
     let stx ← `(tactic| intros; $aesopStx)
     evalTactic stx
   where
@@ -251,12 +242,12 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | useSimp
     | useSimpAll
     | useSimpAllWithPremises
-    | useAesop (subHeartbeats : Nat)
-    | useAesopWithPremises (subHeartbeats : Nat)
-    | useAesopPSafeNew (subHeartbeats : Nat)
-    | useAesopPSafeOld (subHeartbeats : Nat)
-    | useAesopPUnsafeNew (subHeartbeats : Nat)
-    | useAesopPUnsafeOld (subHeartbeats : Nat)
+    | useAesop
+    | useAesopWithPremises
+    | useAesopPSafeNew
+    | useAesopPSafeOld
+    | useAesopPUnsafeNew
+    | useAesopPUnsafeOld
     | useSaturateNewDAesop
     | useSaturateOldDAesop
     | useSaturateNewDAss
@@ -272,17 +263,17 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useSimp                 => "useSimp"
     | .useSimpAll              => "useSimpAll"
     | .useSimpAllWithPremises  => "useSimpAllWithPremises"
-    | .useAesop sh             => s!"useAesop {sh}"
-    | .useAesopWithPremises sh => s!"useAesopWithPremises {sh}"
-    | .useAesopPSafeNew sh => s!"useAesopPSafeNew {sh}"
-    | .useAesopPSafeOld sh => s!"useAesopPSafeOld {sh}"
-    | .useAesopPUnsafeNew sh => s!"useAesopPUnsafeNew {sh}"
-    | .useAesopPUnsafeOld sh => s!"useAesopPUnsafeOld {sh}"
-    | .useSaturateNewDAesop => s!"useSaturateNewDAesop"
-    | .useSaturateOldDAesop => s!"useSaturateOldDAesop"
-    | .useSaturateNewDAss => s!"useSaturateNewDAss"
-    | .useSaturateOldDAss => s!"useSaturateOldDAs"
-    | .useDuper                => s!"useDuper"
+    | .useAesop                => "useAesop"
+    | .useAesopWithPremises    => "useAesopWithPremises"
+    | .useAesopPSafeNew        => "useAesopPSafeNew"
+    | .useAesopPSafeOld        => "useAesopPSafeOld"
+    | .useAesopPUnsafeNew      => "useAesopPUnsafeNew"
+    | .useAesopPUnsafeOld      => "useAesopPUnsafeOld"
+    | .useSaturateNewDAesop    => "useSaturateNewDAesop"
+    | .useSaturateOldDAesop    => "useSaturateOldDAesop"
+    | .useSaturateNewDAss      => "useSaturateNewDAss"
+    | .useSaturateOldDAss      => "useSaturateOldDAs"
+    | .useDuper                => "useDuper"
     | .useAuto ig config timeout => s!"useAuto {ig} {config} {timeout}"
 
   def RegisteredTactic.toCiTactic : RegisteredTactic → ConstantInfo → TacticM Unit
@@ -291,16 +282,16 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useSimp                 => fun _ => EvalAuto.useSimp
     | .useSimpAll              => fun _ => EvalAuto.useSimpAll
     | .useSimpAllWithPremises  => EvalAuto.useSimpAllWithPremises
-    | .useAesop sh             => fun _ => EvalAuto.useAesop sh true
-    | .useAesopWithPremises sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_apply
-    | .useAesopPSafeNew sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_forward_safe
-    | .useAesopPSafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_safe
-    | .useAesopPUnsafeNew sh => EvalAuto.useAesopWithPremises sh true mkAddIdentStx_forward_unsafe
-    | .useAesopPUnsafeOld sh => EvalAuto.useAesopWithPremises sh false mkAddIdentStx_forward_unsafe
-    | .useSaturateNewDAesop => EvalAuto.useSaturate true true
-    | .useSaturateOldDAesop => EvalAuto.useSaturate false true
-    | .useSaturateNewDAss => EvalAuto.useSaturate true false
-    | .useSaturateOldDAss => EvalAuto.useSaturate false false
+    | .useAesop                => fun _ => EvalAuto.useAesop true
+    | .useAesopWithPremises    => EvalAuto.useAesopWithPremises true mkAddIdentStx_apply
+    | .useAesopPSafeNew        => EvalAuto.useAesopWithPremises true mkAddIdentStx_forward_safe
+    | .useAesopPSafeOld        => EvalAuto.useAesopWithPremises false mkAddIdentStx_forward_safe
+    | .useAesopPUnsafeNew      => EvalAuto.useAesopWithPremises true mkAddIdentStx_forward_unsafe
+    | .useAesopPUnsafeOld      => EvalAuto.useAesopWithPremises false mkAddIdentStx_forward_unsafe
+    | .useSaturateNewDAesop    => EvalAuto.useSaturate true true
+    | .useSaturateOldDAesop    => EvalAuto.useSaturate false true
+    | .useSaturateNewDAss      => EvalAuto.useSaturate true false
+    | .useSaturateOldDAss      => EvalAuto.useSaturate false false
     | .useDuper                => EvalAuto.useDuper
     | .useAuto ig config timeout => EvalAuto.useAuto ig config timeout
 
