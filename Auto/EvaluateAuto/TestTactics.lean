@@ -8,6 +8,23 @@ namespace EvalAuto
 
 open Lean Elab Tactic
 
+section Filter
+
+open Meta in
+def isNotSimpTheorem (name : Name) : CoreM Bool := do
+  return !(← getSimpTheorems).lemmaNames.contains (.decl name)
+
+open Meta in
+def isNotInstance (name : Name) : CoreM Bool := do
+  return !(← getSimpTheorems).lemmaNames.contains (.decl name)
+
+def isNotPrivate (name : Name) : Bool := ! (isPrivateName name)
+
+open Expr in
+def isNotType (name : Name) : Bool := ! (isType (.const name []))
+
+end Filter
+
 section Tactics
 
   /--
@@ -40,7 +57,13 @@ section Tactics
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
     let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
       return !(← Name.onlyLogicInType name))
-    let usedThmTerms : Array Term := usedThmNames.map (fun name => ⟨mkIdent name⟩)
+    let mut filteredThmNames := usedThmNames
+    -- filtering out some undesirable constants, comment out to disable.
+    filteredThmNames ← filteredThmNames.filterM (isNotSimpTheorem ·)
+    filteredThmNames ← filteredThmNames.filterM (isNotInstance ·)
+    filteredThmNames := filteredThmNames.filter isNotPrivate
+    filteredThmNames := filteredThmNames.filter isNotType
+    let usedThmTerms : Array Term := filteredThmNames.map (fun name => ⟨mkIdent name⟩)
     evalTactic (← `(tactic| intros; simp_all [$[$usedThmTerms:term],*]))
 
   private def mkAesopStxNew (tacticClauses : Array (TSyntax `Aesop.tactic_clause)) : TSyntax `tactic :=
@@ -88,9 +111,15 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
       TacticM Unit := do
     let .some proof := ci.value?
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
-    let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
-      return !(← Name.onlyLogicInType name))
-    let usedThmIdents := usedThmNames.map Lean.mkIdent
+    let usedThmNames ← ((← Expr.getUsedTheorems proof).filterM (fun name =>
+      return !(← Name.onlyLogicInType name)))
+    let mut filteredThmNames := usedThmNames
+    -- filtering out some undesirable constants, comment out to disable.
+    filteredThmNames ← filteredThmNames.filterM (isNotSimpTheorem ·)
+    filteredThmNames ← filteredThmNames.filterM (isNotInstance ·)
+    filteredThmNames := filteredThmNames.filter isNotPrivate
+    filteredThmNames := filteredThmNames.filter isNotType
+    let usedThmIdents := filteredThmNames.map Lean.mkIdent
     let addClauses := usedThmIdents.map mkAddIdentStx
     let mut aesopStx : TSyntax `tactic := default
     if useNew then
@@ -129,7 +158,14 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
     let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
       return !(← Name.onlyLogicInType name))
-    let usedThmIdents := usedThmNames.map Lean.mkIdent
+    let mut filteredThmNames := usedThmNames
+    -- filtering out some undesirable constants, comment out to disable.
+    -- Not filtering out simp for saturate.
+    -- filteredThmNames ← filteredThmNames.filterM (isNotSimpTheorem ·)
+    filteredThmNames ← filteredThmNames.filterM (isNotInstance ·)
+    filteredThmNames := filteredThmNames.filter isNotPrivate
+    filteredThmNames := filteredThmNames.filter isNotType
+    let usedThmIdents := filteredThmNames.map Lean.mkIdent
     let addClauses := mkAddRulesStx usedThmIdents
     let mut saturateStx : TSyntax `tactic := default
     if useNew then
