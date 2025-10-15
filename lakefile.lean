@@ -11,4 +11,4 @@ lean_lib «Auto» {
   -- add any library configuration options here
 }
 
-require aesop from git "https://github.com/leanprover-community/aesop" @ "lazy-incremental-forward-state"
+require aesop from git "https://github.com/leanprover-community/aesop" @ "forward-eval-hyps"
