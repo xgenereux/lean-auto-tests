@@ -123,8 +123,7 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     Unhygienic.run `(additionalRule| $ident:ident)) -- should this be a term?
   Unhygienic.run `(additionalRules| [$rules:additionalRule,*])
 
-  def useSaturate (useNew : Bool) (aesopDis : Bool) (ci : ConstantInfo) :
-      TacticM Unit := do
+  def useSaturate (useNew : Bool) (ci : ConstantInfo) : TacticM Unit := do
     let .some proof := ci.value?
       | throwError "{decl_name%} :: ConstantInfo of {ci.name} has no value"
     let usedThmNames ← (← Expr.getUsedTheorems proof).filterM (fun name =>
@@ -136,11 +135,7 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
       saturateStx := mkSaturateStxNew addClauses
     else
       saturateStx := mkSaturateStxOld addClauses
-    let mut stx : TSyntax `tactic.seq := default
-    if aesopDis then
-      stx ← `(tactic| intros; $saturateStx; aesop)
-    else
-      stx ← `(tactic| intros; $saturateStx; assumption)
+    let stx ← `(tactic| intros; $saturateStx)
     evalTactic stx
   where
     synth : SourceInfo := SourceInfo.synthetic default default false
@@ -157,10 +152,8 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | useAesopPSafeOld
     | useAesopPUnsafeNew
     | useAesopPUnsafeOld
-    | useSaturateNewDAesop
-    | useSaturateOldDAesop
-    | useSaturateNewDAss
-    | useSaturateOldDAss
+    | useSaturateNew
+    | useSaturateOld
   deriving BEq, Hashable, Repr
 
   instance : ToString RegisteredTactic where
@@ -176,10 +169,8 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useAesopPSafeOld        => "useAesopPSafeOld"
     | .useAesopPUnsafeNew      => "useAesopPUnsafeNew"
     | .useAesopPUnsafeOld      => "useAesopPUnsafeOld"
-    | .useSaturateNewDAesop    => "useSaturateNewDAesop"
-    | .useSaturateOldDAesop    => "useSaturateOldDAesop"
-    | .useSaturateNewDAss      => "useSaturateNewDAss"
-    | .useSaturateOldDAss      => "useSaturateOldDAs"
+    | .useSaturateNew          => "useSaturateNew"
+    | .useSaturateOld          => "useSaturateOld"
 
   def RegisteredTactic.toCiTactic : RegisteredTactic → ConstantInfo → TacticM Unit
     | .testUnknownConstant     => EvalAuto.testUnknownConstant
@@ -193,10 +184,8 @@ def mkAddIdentStx_forward_unsafe (ident : Ident) : TSyntax `Aesop.tactic_clause 
     | .useAesopPSafeOld        => EvalAuto.useAesopWithPremises false mkAddIdentStx_forward_safe
     | .useAesopPUnsafeNew      => EvalAuto.useAesopWithPremises true mkAddIdentStx_forward_unsafe
     | .useAesopPUnsafeOld      => EvalAuto.useAesopWithPremises false mkAddIdentStx_forward_unsafe
-    | .useSaturateNewDAesop    => EvalAuto.useSaturate true true
-    | .useSaturateOldDAesop    => EvalAuto.useSaturate false true
-    | .useSaturateNewDAss      => EvalAuto.useSaturate true false
-    | .useSaturateOldDAss      => EvalAuto.useSaturate false false
+    | .useSaturateNew    => EvalAuto.useSaturate true
+    | .useSaturateOld    => EvalAuto.useSaturate false
 
 end Tactics
 
