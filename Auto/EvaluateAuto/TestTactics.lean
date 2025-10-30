@@ -16,7 +16,7 @@ def isNotSimpTheorem (name : Name) : CoreM Bool := do
 
 open Meta in
 def isNotInstance (name : Name) : CoreM Bool := do
-  return !(← getSimpTheorems).lemmaNames.contains (.decl name)
+  return ! (← isInstance name)
 
 def isNotPrivate (name : Name) : Bool := ! (isPrivateName name)
 
