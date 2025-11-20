@@ -345,7 +345,7 @@ def evalTacticsAtModule
     if filter ci then
       let result ← evalAction
         { fileName := path.toString, fileMap := FileMap.ofString input } { env := st₁.commandState.env }
-        ci logFileHandle? config nonterms
+        ci logFileHandle? config nonterms path
       return .some (ci.name, result)
     else
       return .none)
@@ -359,12 +359,15 @@ where
   evalAction
     (context : Core.Context) (state : Core.State) (ci : ConstantInfo)
     (logFileHandle? : Option IO.FS.Handle) (config : EvalTacticConfig)
-    (nonterms : Std.HashSet (RegisteredTactic × Name)) : IO (Array (Result × Nat × Nat)) := do
+    (nonterms : Std.HashSet (RegisteredTactic × Name)) (moduleFile : System.FilePath) :
+    IO (Array (Result × Nat × Nat)) := do
   config.tactics.zipIdx.mapM fun (tactic, idx) => do
     let metaAction : MetaM Result :=
       Term.TermElabM.run' do
       withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := config.maxHeartbeats * 1000 }) do
       withOptions (async.set · false) do -- We run one process per core, so don't want contention from multiple threads.
+      let aesopStatsFile := moduleFile.withExtension "aesop.jsonl" |>.toString
+      withOptions (Aesop.aesop.stats.file.set · aesopStatsFile) do
       withCurrHeartbeats do
         Result.ofTacticOnExpr ci.type (tactic.toCiTactic ci)
     let coreAction : CoreM Result := do
