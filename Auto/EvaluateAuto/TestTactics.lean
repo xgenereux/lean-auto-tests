@@ -278,6 +278,9 @@ structure EvalTacticConfig where
   logFile       : Option String := .none
   /-- Optional file for saving the result of the evaluation -/
   resultFile    : Option String := .none
+  /-- Optional directory to which Aesop stats files will be written. A separate
+  file is generated for each tactic in `tactics`. -/
+  aesopStatsDir : Option String := none
   /--
     On some problems, certain tactics may go into infinite loops not
     guarded by `Core.checkMaxHeartbeats`. These instances should be
@@ -304,7 +307,7 @@ def withMaybeTimeout (timeoutMs : UInt32) (cancelTk? : Option IO.CancelToken) (x
 
 instance : ToString EvalTacticConfig where
   toString : EvalTacticConfig → String
-  | ⟨timeout?, maxHeartbeats, tactics, logFile, resultFile, nonterminates⟩ =>
+  | ⟨timeout?, maxHeartbeats, tactics, logFile, resultFile, aesopStatsDir, nonterminates⟩ =>
     let logFileStr :=
       match logFile with
       | .some logFile => s!", logFile := {logFile}"
@@ -313,9 +316,13 @@ instance : ToString EvalTacticConfig where
       match resultFile with
       | .some resultFile => s!", resultFile := {resultFile}"
       | .none => ""
+    let aesopStatsDirStr :=
+      match aesopStatsDir with
+      | .some aesopStatsDir => s!", aesopStatsDir := {aesopStatsDir}"
+      | .none => ""
     let nontermStr := String.intercalate ",\n" (nonterminates.map (fun (rt, n) => s!"    ({rt}, {n})")).toList
     let nontermStr := if nonterminates.size != 0 then nontermStr ++ "\n" else nontermStr
-    s!"\{\n  timeout? := {timeout?}, maxHeartbeats := {maxHeartbeats}, tactics := {tactics}{logFileStr}{resultFileStr}" ++
+    s!"\{\n  timeout? := {timeout?}, maxHeartbeats := {maxHeartbeats}, tactics := {tactics}{logFileStr}{resultFileStr}{aesopStatsDirStr}" ++
     s!"\n  nonterminates := #[\n{nontermStr}  ]\n}"
 
 /--
@@ -345,7 +352,7 @@ def evalTacticsAtModule
     if filter ci then
       let result ← evalAction
         { fileName := path.toString, fileMap := FileMap.ofString input } { env := st₁.commandState.env }
-        ci logFileHandle? config nonterms path
+        ci logFileHandle? config nonterms
       return .some (ci.name, result)
     else
       return .none)
@@ -359,14 +366,17 @@ where
   evalAction
     (context : Core.Context) (state : Core.State) (ci : ConstantInfo)
     (logFileHandle? : Option IO.FS.Handle) (config : EvalTacticConfig)
-    (nonterms : Std.HashSet (RegisteredTactic × Name)) (moduleFile : System.FilePath) :
+    (nonterms : Std.HashSet (RegisteredTactic × Name)) :
     IO (Array (Result × Nat × Nat)) := do
   config.tactics.zipIdx.mapM fun (tactic, idx) => do
     let metaAction : MetaM Result :=
       Term.TermElabM.run' do
       withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := config.maxHeartbeats * 1000 }) do
       withOptions (async.set · false) do -- We run one process per core, so don't want contention from multiple threads.
-      let aesopStatsFile := moduleFile.withExtension "aesop.jsonl" |>.toString
+      let aesopStatsFile :=
+        match config.aesopStatsDir with
+        | none => ""
+        | some dir => s!"{dir}{System.FilePath.pathSeparator}{tactic}.jsonl"
       withOptions (Aesop.aesop.stats.file.set · aesopStatsFile) do
       withCurrHeartbeats do
         Result.ofTacticOnExpr ci.type (tactic.toCiTactic ci)
@@ -540,7 +550,7 @@ where
         "def action : CoreM Unit := do",
         s!"  let _ ← evalTacticsAtModule ({repr mm}) (fun ci => humanThms.contains ci.name)",
         s!"    {lb} timeout? := {config.timeout?}, maxHeartbeats := {config.maxHeartbeats}, tactics := #[{tacsStr}],",
-        s!"      logFile := {repr (logPath ++ ".log")}, resultFile := {repr (logPath ++ ".result")},",
+        s!"      logFile := {repr (logPath ++ ".log")}, resultFile := {repr (logPath ++ ".result")}, aesopStatsDir := {repr (logPath ++ ".aesopstats")},",
         s!"      nonterminates := nonterms {rb}",
         "",
         -- Passing option `auto.testTactics.ensureAesop`
