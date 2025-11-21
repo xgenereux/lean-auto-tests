@@ -257,7 +257,8 @@ def runTacticsAtConstantDeclaration
     if name != ci.name then
       return .none
     let metaAction (tactic : ConstantInfo → TacticM Unit) : MetaM Result :=
-      Term.TermElabM.run' <| Result.ofTacticOnExpr ci.type (tactic ci)
+      Term.TermElabM.run' (ctx := { declName? := name }) do
+        Result.ofTacticOnExpr ci.type (tactic ci)
     let coreAction tactic : CoreM Result := (metaAction tactic).run'
     let ioAction tactic : IO (Result × _) :=
       (coreAction tactic).toIO {fileName := path.toString, fileMap := FileMap.ofString input } { env := st₁.commandState.env }
@@ -370,7 +371,7 @@ where
     IO (Array (Result × Nat × Nat)) := do
   config.tactics.zipIdx.mapM fun (tactic, idx) => do
     let metaAction : MetaM Result :=
-      Term.TermElabM.run' do
+      Term.TermElabM.run' (ctx := { declName? := ci.name }) do
       withTheReader Core.Context (fun ctx => { ctx with maxHeartbeats := config.maxHeartbeats * 1000 }) do
       withOptions (async.set · false) do -- We run one process per core, so don't want contention from multiple threads.
       let aesopStatsFile :=
