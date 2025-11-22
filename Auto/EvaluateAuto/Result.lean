@@ -58,7 +58,7 @@ def Result.ofTacticOnExpr (e : Expr) (tactic : TacticM Unit) : TermElabM Result 
   let .mvar mid ← Meta.mkFreshExprMVar e
     | throwError "{decl_name%} : Unexpected error"
   let result : List MVarId ⊕ Exception ← tryCatchRuntimeEx
-    (do let goals ← Term.TermElabM.run' (Tactic.run mid tactic) {}; return .inl goals)
+    (.inl <$> Tactic.run mid tactic)
     (fun e => return .inr e)
   match result with
   | .inl goals =>
