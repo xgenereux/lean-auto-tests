@@ -5,7 +5,7 @@
    "type": "git",
    "subDir": null,
    "scope": "",
-   "rev": "acc2ff2bb783f6e63dea5ab68429dbb7328f0b47",
+   "rev": "5ab09caf7893477bc8da7b5fab50cb460ed3d7de",
    "name": "aesop",
    "manifestFile": "lake-manifest.json",
    "inputRev": "forward-eval",
