@@ -288,6 +288,8 @@ structure EvalTacticConfig where
     recorded here and avoided (throw error immediately) during evaluation.
   -/
   nonterminates : Array (RegisteredTactic × Name)
+  /-- Evaluate each tactic N times, collecting independent results. -/
+  repetitions : Nat := 1
 
 def withTimeout (timeoutMs : UInt32) (cancelTk : IO.CancelToken) (x : IO α) : IO (Option α) := do
   let task ← (some <$> x).asTask
@@ -308,7 +310,7 @@ def withMaybeTimeout (timeoutMs : UInt32) (cancelTk? : Option IO.CancelToken) (x
 
 instance : ToString EvalTacticConfig where
   toString : EvalTacticConfig → String
-  | ⟨timeout?, maxHeartbeats, tactics, logFile, resultFile, aesopStatsPrefix, nonterminates⟩ =>
+  | ⟨timeout?, maxHeartbeats, tactics, logFile, resultFile, aesopStatsPrefix, nonterminates, repetitions⟩ =>
     let logFileStr :=
       match logFile with
       | .some logFile => s!", logFile := {logFile}"
@@ -323,7 +325,7 @@ instance : ToString EvalTacticConfig where
       | .none => ""
     let nontermStr := String.intercalate ",\n" (nonterminates.map (fun (rt, n) => s!"    ({rt}, {n})")).toList
     let nontermStr := if nonterminates.size != 0 then nontermStr ++ "\n" else nontermStr
-    s!"\{\n  timeout? := {timeout?}, maxHeartbeats := {maxHeartbeats}, tactics := {tactics}{logFileStr}{resultFileStr}{aesopStatsPrefixStr}" ++
+    s!"\{\n  timeout? := {timeout?}, maxHeartbeats := {maxHeartbeats}, tactics := {tactics}{logFileStr}{resultFileStr}{aesopStatsPrefixStr}, repetitions := {repetitions}" ++
     s!"\n  nonterminates := #[\n{nontermStr}  ]\n}"
 
 /--
@@ -349,14 +351,17 @@ def evalTacticsAtModule
   let input ← inputHandle.readToEnd
   let startTime ← IO.monoMsNow
   let nonterms := Std.HashSet.ofArray config.nonterminates
-  let results ← runWithEffectOfCommands input path.toString .none (fun _ctx st₁ _st₂ ci => do
-    if filter ci then
+  let resultss ← runWithEffectOfCommands input path.toString none fun _ctx st₁ _st₂ ci => do
+    if ! filter ci then
+      return none
+    let mut results := #[]
+    for _ in [:config.repetitions] do
       let result ← evalAction
         { fileName := path.toString, fileMap := FileMap.ofString input } { env := st₁.commandState.env }
         ci logFileHandle? config nonterms
-      return .some (ci.name, result)
-    else
-      return .none)
+      results := results.push (ci.name, result)
+    return some results
+  let results := resultss.flatten
   if let .some fhandle := resultFileHandle? then
     fhandle.putStrLn s!"Total elapsed time : {(← IO.monoMsNow) - startTime} ms"
     fhandle.putStrLn s!"\nSummary:\n"
@@ -454,6 +459,8 @@ structure EvalTacticOnMathlibConfig where
     recorded here and avoided (throw error immediately) during evaluation.
   -/
   nonterminates : Array (RegisteredTactic × Name)
+  /-- Evaluate each tactic N times, collecting independent results. -/
+  repetitions : Nat := 1
 
 /--
   This should be run after `import Mathlib` and `import Auto.EvaluateAuto.TestTactics`,
@@ -552,7 +559,7 @@ where
         s!"  let _ ← evalTacticsAtModule ({repr mm}) (fun ci => humanThms.contains ci.name)",
         s!"    {lb} timeout? := {config.timeout?}, maxHeartbeats := {config.maxHeartbeats}, tactics := #[{tacsStr}],",
         s!"      logFile := {repr (logPath ++ ".log")}, resultFile := {repr (logPath ++ ".result")}, aesopStatsPrefix := {repr (logPath ++ ".aesopstats")},",
-        s!"      nonterminates := nonterms {rb}",
+        s!"      nonterminates := nonterms, repetitions := {config.repetitions} {rb}",
         "",
         -- Passing option `auto.testTactics.ensureAesop`
         s!"set_option auto.testTactics.ensureAesop {ensureAesop}",
